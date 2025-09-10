@@ -1,1 +1,1441 @@
-{"metadata":{"kernelspec":{"display_name":"Python 3","language":"python","name":"python3"},"language_info":{"name":"python","version":"3.11.13","mimetype":"text/x-python","codemirror_mode":{"name":"ipython","version":3},"pygments_lexer":"ipython3","nbconvert_exporter":"python","file_extension":".py"},"kaggle":{"accelerator":"none","dataSources":[{"sourceId":10211,"databundleVersionId":111096,"sourceType":"competition"}],"isInternetEnabled":false,"language":"python","sourceType":"notebook","isGpuEnabled":false}},"nbformat_minor":4,"nbformat":4,"cells":[{"cell_type":"markdown","source":"**This notebook is an exercise in the [Intermediate Machine Learning](https://www.kaggle.com/learn/intermediate-machine-learning) course.  You can reference the tutorial at [this link](https://www.kaggle.com/alexisbcook/pipelines).**\n\n---\n","metadata":{}},{"cell_type":"markdown","source":"In this exercise, you will use **pipelines** to improve the efficiency of your machine learning code.\n\n# Setup\n\nThe questions below will give you feedback on your work. Run the following cell to set up the feedback system.","metadata":{}},{"cell_type":"code","source":"# Set up code checking\nimport os\nif not os.path.exists(\"../input/train.csv\"):\n    os.symlink(\"../input/home-data-for-ml-course/train.csv\", \"../input/train.csv\")  \n    os.symlink(\"../input/home-data-for-ml-course/test.csv\", \"../input/test.csv\") \nfrom learntools.core import binder\nbinder.bind(globals())\nfrom learntools.ml_intermediate.ex4 import *\nprint(\"Setup Complete\")","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T14:15:49.842506Z","iopub.execute_input":"2025-09-10T14:15:49.842743Z","iopub.status.idle":"2025-09-10T14:15:53.554932Z","shell.execute_reply.started":"2025-09-10T14:15:49.842712Z","shell.execute_reply":"2025-09-10T14:15:53.554122Z"}},"outputs":[{"name":"stdout","text":"Setup Complete\n","output_type":"stream"}],"execution_count":1},{"cell_type":"markdown","source":"You will work with data from the [Housing Prices Competition for Kaggle Learn Users](https://www.kaggle.com/c/home-data-for-ml-course). \n\n![Ames Housing dataset image](https://storage.googleapis.com/kaggle-media/learn/images/lTJVG4e.png)\n\nRun the next code cell without changes to load the training and validation sets in `X_train`, `X_valid`, `y_train`, and `y_valid`.  The test set is loaded in `X_test`.","metadata":{}},{"cell_type":"code","source":"import pandas as pd\nfrom sklearn.model_selection import train_test_split\n\n# Read the data\nX_full = pd.read_csv('../input/train.csv', index_col='Id')\nX_test_full = pd.read_csv('../input/test.csv', index_col='Id')\n\n# Remove rows with missing target, separate target from predictors\nX_full.dropna(axis=0, subset=['SalePrice'], inplace=True)\ny = X_full.SalePrice\nX_full.drop(['SalePrice'], axis=1, inplace=True)\n\n# Break off validation set from training data\nX_train_full, X_valid_full, y_train, y_valid = train_test_split(X_full, y, \n                                                                train_size=0.8, test_size=0.2,\n                                                                random_state=0)\n\n# \"Cardinality\" means the number of unique values in a column\n# Select categorical columns with relatively low cardinality (convenient but arbitrary)\ncategorical_cols = [cname for cname in X_train_full.columns if\n                    X_train_full[cname].nunique() < 10 and \n                    X_train_full[cname].dtype == \"object\"]\n\n# Select numerical columns\nnumerical_cols = [cname for cname in X_train_full.columns if \n                X_train_full[cname].dtype in ['int64', 'float64']]\n\n# Keep selected columns only\nmy_cols = categorical_cols + numerical_cols\nX_train = X_train_full[my_cols].copy()\nX_valid = X_valid_full[my_cols].copy()\nX_test = X_test_full[my_cols].copy()","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T14:16:25.492278Z","iopub.execute_input":"2025-09-10T14:16:25.492693Z","iopub.status.idle":"2025-09-10T14:16:25.713147Z","shell.execute_reply.started":"2025-09-10T14:16:25.492660Z","shell.execute_reply":"2025-09-10T14:16:25.712306Z"}},"outputs":[],"execution_count":2},{"cell_type":"code","source":"X_train.head()","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T14:16:27.660948Z","iopub.execute_input":"2025-09-10T14:16:27.661251Z","iopub.status.idle":"2025-09-10T14:16:27.689083Z","shell.execute_reply.started":"2025-09-10T14:16:27.661224Z","shell.execute_reply":"2025-09-10T14:16:27.688369Z"}},"outputs":[{"execution_count":3,"output_type":"execute_result","data":{"text/plain":"    MSZoning Street Alley LotShape LandContour Utilities LotConfig LandSlope  \\\nId                                                                             \n619       RL   Pave   NaN      Reg         Lvl    AllPub    Inside       Gtl   \n871       RL   Pave   NaN      Reg         Lvl    AllPub    Inside       Gtl   \n93        RL   Pave  Grvl      IR1         HLS    AllPub    Inside       Gtl   \n818       RL   Pave   NaN      IR1         Lvl    AllPub   CulDSac       Gtl   \n303       RL   Pave   NaN      IR1         Lvl    AllPub    Corner       Gtl   \n\n    Condition1 Condition2  ... GarageArea WoodDeckSF OpenPorchSF  \\\nId                         ...                                     \n619       Norm       Norm  ...        774          0         108   \n871       PosN       Norm  ...        308          0           0   \n93        Norm       Norm  ...        432          0           0   \n818       Norm       Norm  ...        857        150          59   \n303       Norm       Norm  ...        843        468          81   \n\n    EnclosedPorch 3SsnPorch ScreenPorch PoolArea MiscVal MoSold YrSold  \nId                                                                      \n619             0         0         260        0       0      7   2007  \n871             0         0           0        0       0      8   2009  \n93             44         0           0        0       0      8   2009  \n818             0         0           0        0       0      7   2008  \n303             0         0           0        0       0      1   2006  \n\n[5 rows x 76 columns]","text/html":"<div>\n<style scoped>\n    .dataframe tbody tr th:only-of-type {\n        vertical-align: middle;\n    }\n\n    .dataframe tbody tr th {\n        vertical-align: top;\n    }\n\n    .dataframe thead th {\n        text-align: right;\n    }\n</style>\n<table border=\"1\" class=\"dataframe\">\n  <thead>\n    <tr style=\"text-align: right;\">\n      <th></th>\n      <th>MSZoning</th>\n      <th>Street</th>\n      <th>Alley</th>\n      <th>LotShape</th>\n      <th>LandContour</th>\n      <th>Utilities</th>\n      <th>LotConfig</th>\n      <th>LandSlope</th>\n      <th>Condition1</th>\n      <th>Condition2</th>\n      <th>...</th>\n      <th>GarageArea</th>\n      <th>WoodDeckSF</th>\n      <th>OpenPorchSF</th>\n      <th>EnclosedPorch</th>\n      <th>3SsnPorch</th>\n      <th>ScreenPorch</th>\n      <th>PoolArea</th>\n      <th>MiscVal</th>\n      <th>MoSold</th>\n      <th>YrSold</th>\n    </tr>\n    <tr>\n      <th>Id</th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n      <th></th>\n    </tr>\n  </thead>\n  <tbody>\n    <tr>\n      <th>619</th>\n      <td>RL</td>\n      <td>Pave</td>\n      <td>NaN</td>\n      <td>Reg</td>\n      <td>Lvl</td>\n      <td>AllPub</td>\n      <td>Inside</td>\n      <td>Gtl</td>\n      <td>Norm</td>\n      <td>Norm</td>\n      <td>...</td>\n      <td>774</td>\n      <td>0</td>\n      <td>108</td>\n      <td>0</td>\n      <td>0</td>\n      <td>260</td>\n      <td>0</td>\n      <td>0</td>\n      <td>7</td>\n      <td>2007</td>\n    </tr>\n    <tr>\n      <th>871</th>\n      <td>RL</td>\n      <td>Pave</td>\n      <td>NaN</td>\n      <td>Reg</td>\n      <td>Lvl</td>\n      <td>AllPub</td>\n      <td>Inside</td>\n      <td>Gtl</td>\n      <td>PosN</td>\n      <td>Norm</td>\n      <td>...</td>\n      <td>308</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>8</td>\n      <td>2009</td>\n    </tr>\n    <tr>\n      <th>93</th>\n      <td>RL</td>\n      <td>Pave</td>\n      <td>Grvl</td>\n      <td>IR1</td>\n      <td>HLS</td>\n      <td>AllPub</td>\n      <td>Inside</td>\n      <td>Gtl</td>\n      <td>Norm</td>\n      <td>Norm</td>\n      <td>...</td>\n      <td>432</td>\n      <td>0</td>\n      <td>0</td>\n      <td>44</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>8</td>\n      <td>2009</td>\n    </tr>\n    <tr>\n      <th>818</th>\n      <td>RL</td>\n      <td>Pave</td>\n      <td>NaN</td>\n      <td>IR1</td>\n      <td>Lvl</td>\n      <td>AllPub</td>\n      <td>CulDSac</td>\n      <td>Gtl</td>\n      <td>Norm</td>\n      <td>Norm</td>\n      <td>...</td>\n      <td>857</td>\n      <td>150</td>\n      <td>59</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>7</td>\n      <td>2008</td>\n    </tr>\n    <tr>\n      <th>303</th>\n      <td>RL</td>\n      <td>Pave</td>\n      <td>NaN</td>\n      <td>IR1</td>\n      <td>Lvl</td>\n      <td>AllPub</td>\n      <td>Corner</td>\n      <td>Gtl</td>\n      <td>Norm</td>\n      <td>Norm</td>\n      <td>...</td>\n      <td>843</td>\n      <td>468</td>\n      <td>81</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>0</td>\n      <td>1</td>\n      <td>2006</td>\n    </tr>\n  </tbody>\n</table>\n<p>5 rows × 76 columns</p>\n</div>"},"metadata":{}}],"execution_count":3},{"cell_type":"markdown","source":"The next code cell uses code from the tutorial to preprocess the data and train a model.  Run this code without changes.","metadata":{}},{"cell_type":"code","source":"from sklearn.compose import ColumnTransformer\nfrom sklearn.pipeline import Pipeline\nfrom sklearn.impute import SimpleImputer\nfrom sklearn.preprocessing import OneHotEncoder\nfrom sklearn.ensemble import RandomForestRegressor\nfrom sklearn.metrics import mean_absolute_error\n\n# Preprocessing for numerical data\nnumerical_transformer = SimpleImputer(strategy='constant')\n\n# Preprocessing for categorical data\ncategorical_transformer = Pipeline(steps=[\n    ('imputer', SimpleImputer(strategy='most_frequent')),\n    ('onehot', OneHotEncoder(handle_unknown='ignore'))\n])\n\n# Bundle preprocessing for numerical and categorical data\npreprocessor = ColumnTransformer(\n    transformers=[\n        ('num', numerical_transformer, numerical_cols),\n        ('cat', categorical_transformer, categorical_cols)\n    ])\n\n# Define model\nmodel = RandomForestRegressor(n_estimators=100, random_state=0)\n\n# Bundle preprocessing and modeling code in a pipeline\nclf = Pipeline(steps=[('preprocessor', preprocessor),\n                      ('model', model)\n                     ])\n\n# Preprocessing of training data, fit model \nclf.fit(X_train, y_train)\n\n# Preprocessing of validation data, get predictions\npreds = clf.predict(X_valid)\n\nprint('MAE:', mean_absolute_error(y_valid, preds))","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T14:17:37.368496Z","iopub.execute_input":"2025-09-10T14:17:37.369096Z","iopub.status.idle":"2025-09-10T14:17:40.191048Z","shell.execute_reply.started":"2025-09-10T14:17:37.369069Z","shell.execute_reply":"2025-09-10T14:17:40.190214Z"}},"outputs":[{"name":"stdout","text":"MAE: 17614.81993150685\n","output_type":"stream"}],"execution_count":4},{"cell_type":"markdown","source":"The code yields a value around 17862 for the mean absolute error (MAE).  In the next step, you will amend the code to do better.\n\n# Step 1: Improve the performance\n\n### Part A\n\nNow, it's your turn!  In the code cell below, define your own preprocessing steps and random forest model.  Fill in values for the following variables:\n- `numerical_transformer`\n- `categorical_transformer`\n- `model`\n\nTo pass this part of the exercise, you need only define valid preprocessing steps and a random forest model.","metadata":{}},{"cell_type":"code","source":"# Just repeated what was done above. Will adjust later on.\n# Preprocessing for numerical data\nnumerical_transformer = SimpleImputer(strategy='constant') # Your code here\n\n# Preprocessing for categorical data\ncategorical_transformer = Pipeline(steps=[\n    ('imputer', SimpleImputer(strategy='most_frequent')),\n    ('onehot', OneHotEncoder(handle_unknown='ignore'))\n])# Your code here\n\n# Bundle preprocessing for numerical and categorical data\npreprocessor = ColumnTransformer(\n    transformers=[\n        ('num', numerical_transformer, numerical_cols),\n        ('cat', categorical_transformer, categorical_cols)\n    ])\n\n# Define model\nmodel = RandomForestRegressor(n_estimators=100, random_state=0) # Your code here\n\n# Check your answer\nstep_1.a.check()","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T14:19:47.918955Z","iopub.execute_input":"2025-09-10T14:19:47.919594Z","iopub.status.idle":"2025-09-10T14:19:47.927667Z","shell.execute_reply.started":"2025-09-10T14:19:47.919557Z","shell.execute_reply":"2025-09-10T14:19:47.926784Z"}},"outputs":[{"output_type":"display_data","data":{"text/plain":"<IPython.core.display.Javascript object>","application/javascript":"parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"outcomeType\": 1, \"valueTowardsCompletion\": 1.0, \"interactionType\": 1, \"questionType\": 2, \"questionId\": \"1.1_YourTurnModel\", \"learnToolsVersion\": \"0.3.5\", \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\"}}, \"*\")"},"metadata":{}},{"output_type":"display_data","data":{"text/plain":"Correct","text/markdown":"<span style=\"color:#33cc33\">Correct</span>"},"metadata":{}}],"execution_count":6},{"cell_type":"code","source":"# Lines below will give you a hint or solution code\n#step_1.a.hint()\n#step_1.a.solution()","metadata":{},"outputs":[],"execution_count":null},{"cell_type":"markdown","source":"Let us see which columns we are adjusting.","metadata":{}},{"cell_type":"code","source":"#my_cols\n\n#categorical_cols\n\n#numerical_cols","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T14:31:31.085827Z","iopub.execute_input":"2025-09-10T14:31:31.086110Z","iopub.status.idle":"2025-09-10T14:31:31.090131Z","shell.execute_reply.started":"2025-09-10T14:31:31.086090Z","shell.execute_reply":"2025-09-10T14:31:31.089184Z"}},"outputs":[],"execution_count":20},{"cell_type":"code","source":"cols_with_missing = [col for col in numerical_cols\n                     if X_train[col].isnull().any()]\ncols_with_missing","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T14:38:53.259939Z","iopub.execute_input":"2025-09-10T14:38:53.260222Z","iopub.status.idle":"2025-09-10T14:38:53.270294Z","shell.execute_reply.started":"2025-09-10T14:38:53.260199Z","shell.execute_reply":"2025-09-10T14:38:53.269601Z"}},"outputs":[{"execution_count":24,"output_type":"execute_result","data":{"text/plain":"['LotFrontage', 'MasVnrArea', 'GarageYrBlt']"},"metadata":{}}],"execution_count":24},{"cell_type":"markdown","source":"There are so many coloumns we are adjusting. Our methods seem so broad.","metadata":{}},{"cell_type":"markdown","source":"First let's focus on the numerical imputation.\n\nWhat are we imputing with? A 'constant', what is this constant? The default constant is 0. This could be terrible for a date data type, which we know we have. Let us use another value to impute with.\n\nCould we extend the imputation by also stating in another column that the value wasn't originally there.","metadata":{}},{"cell_type":"markdown","source":"Below we changed the preprocess step for the numerical columns. Changing the ```SimpleImputer(strategy='constant')``` to ```SimpleImputer(strategy='median')```.","metadata":{}},{"cell_type":"code","source":"# Preprocessing for numerical data\nnumerical_transformer_num_median = SimpleImputer(strategy='median')\n\n# Preprocessing for categorical data\ncategorical_transformer = Pipeline(steps=[\n    ('imputer', SimpleImputer(strategy='most_frequent')),\n    ('onehot', OneHotEncoder(handle_unknown='ignore'))\n])\n\n# Bundle preprocessing for numerical and categorical data\npreprocessor_num_median = ColumnTransformer(\n    transformers=[\n        ('num', numerical_transformer_num_median, numerical_cols),\n        ('cat', categorical_transformer, categorical_cols)\n    ])\n\n# Define model\nmodel = RandomForestRegressor(n_estimators=100, random_state=0)\n\n# Check your answer\nstep_1.a.check()","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T14:52:59.075584Z","iopub.execute_input":"2025-09-10T14:52:59.076302Z","iopub.status.idle":"2025-09-10T14:52:59.084346Z","shell.execute_reply.started":"2025-09-10T14:52:59.076273Z","shell.execute_reply":"2025-09-10T14:52:59.083518Z"}},"outputs":[{"output_type":"display_data","data":{"text/plain":"<IPython.core.display.Javascript object>","application/javascript":"parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"outcomeType\": 1, \"valueTowardsCompletion\": 1.0, \"interactionType\": 1, \"questionType\": 2, \"questionId\": \"1.1_YourTurnModel\", \"learnToolsVersion\": \"0.3.5\", \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\"}}, \"*\")"},"metadata":{}},{"output_type":"display_data","data":{"text/plain":"Correct","text/markdown":"<span style=\"color:#33cc33\">Correct</span>"},"metadata":{}}],"execution_count":44},{"cell_type":"markdown","source":"### Part B\n\nRun the code cell below without changes.\n\nTo pass this step, you need to have defined a pipeline in **Part A** that achieves lower MAE than the code above.  You're encouraged to take your time here and try out many different approaches, to see how low you can get the MAE!  (_If your code does not pass, please amend the preprocessing steps and model in Part A._)","metadata":{}},{"cell_type":"code","source":"# Bundle preprocessing and modeling code in a pipeline\nmy_pipeline_num_median = Pipeline(steps=[('preprocessor', preprocessor_num_median),\n                              ('model', model)\n                             ])\n\n# Preprocessing of training data, fit model \nmy_pipeline_num_median.fit(X_train, y_train)\n\n# Preprocessing of validation data, get predictions\npreds = my_pipeline_num_median.predict(X_valid)\n\n# Evaluate the model\nscore = mean_absolute_error(y_valid, preds)\nprint('MAE:', score)\n\n# Check your answer\nstep_1.b.check()","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T14:53:01.072941Z","iopub.execute_input":"2025-09-10T14:53:01.073201Z","iopub.status.idle":"2025-09-10T14:53:03.495265Z","shell.execute_reply.started":"2025-09-10T14:53:01.073182Z","shell.execute_reply":"2025-09-10T14:53:03.494577Z"}},"outputs":[{"name":"stdout","text":"MAE: 17514.986232876712\n","output_type":"stream"},{"output_type":"display_data","data":{"text/plain":"<IPython.core.display.Javascript object>","application/javascript":"parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"outcomeType\": 1, \"valueTowardsCompletion\": 1.0, \"interactionType\": 1, \"questionType\": 2, \"questionId\": \"1.2_YourTurnPredict\", \"learnToolsVersion\": \"0.3.5\", \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\"}}, \"*\")"},"metadata":{}},{"output_type":"display_data","data":{"text/plain":"Correct","text/markdown":"<span style=\"color:#33cc33\">Correct</span>"},"metadata":{}}],"execution_count":45},{"cell_type":"markdown","source":"The MAE is less by around a 100 dollars it seems. Not very much but still.\n\nFrom messing around, it is interesting to see that the ```SimpleImputer(strategy='most_frequent')``` actually makes the MAE worse.","metadata":{}},{"cell_type":"markdown","source":"Let us mess around with extending the Imputation for the numerical columns and categorical.","metadata":{}},{"cell_type":"code","source":"# Preprocessing for numerical data\nnumerical_transformer_extend = SimpleImputer(strategy='median', add_indicator=True)\n    \n\n# Preprocessing for categorical data\ncategorical_transformer_extend = Pipeline(steps=[\n    ('imputer', SimpleImputer(strategy='most_frequent', add_indicator=True)),\n    ('onehot', OneHotEncoder(handle_unknown='ignore'))\n])\n\n# Bundle preprocessing for numerical and categorical data\npreprocessor_num_extend = ColumnTransformer(\n    transformers=[\n        ('num', numerical_transformer_extend, numerical_cols),\n        ('cat', categorical_transformer_extend, categorical_cols)\n    ])\n\n# Define model\nmodel = RandomForestRegressor(n_estimators=100, random_state=0)\n\n# Check your answer\nstep_1.a.check()","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T15:05:59.241838Z","iopub.execute_input":"2025-09-10T15:05:59.242120Z","iopub.status.idle":"2025-09-10T15:05:59.252498Z","shell.execute_reply.started":"2025-09-10T15:05:59.242101Z","shell.execute_reply":"2025-09-10T15:05:59.251389Z"}},"outputs":[{"output_type":"display_data","data":{"text/plain":"<IPython.core.display.Javascript object>","application/javascript":"parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"outcomeType\": 1, \"valueTowardsCompletion\": 1.0, \"interactionType\": 1, \"questionType\": 2, \"questionId\": \"1.1_YourTurnModel\", \"learnToolsVersion\": \"0.3.5\", \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\"}}, \"*\")"},"metadata":{}},{"output_type":"display_data","data":{"text/plain":"Correct","text/markdown":"<span style=\"color:#33cc33\">Correct</span>"},"metadata":{}}],"execution_count":49},{"cell_type":"code","source":"# Bundle preprocessing and modeling code in a pipeline\nmy_pipeline_num_extend = Pipeline(steps=[('preprocessor', preprocessor_num_extend),\n                              ('model', model)\n                             ])\n\n# Preprocessing of training data, fit model \nmy_pipeline_num_extend.fit(X_train, y_train)\n\n# Preprocessing of validation data, get predictions\npreds = my_pipeline_num_extend.predict(X_valid)\n\n# Evaluate the model\nscore = mean_absolute_error(y_valid, preds)\nprint('MAE:', score)\n\n# Check your answer\nstep_1.b.check()","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T15:06:02.204163Z","iopub.execute_input":"2025-09-10T15:06:02.204494Z","iopub.status.idle":"2025-09-10T15:06:04.849187Z","shell.execute_reply.started":"2025-09-10T15:06:02.204470Z","shell.execute_reply":"2025-09-10T15:06:04.848392Z"}},"outputs":[{"name":"stdout","text":"MAE: 17515.201232876712\n","output_type":"stream"},{"output_type":"display_data","data":{"text/plain":"<IPython.core.display.Javascript object>","application/javascript":"parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"outcomeType\": 1, \"valueTowardsCompletion\": 1.0, \"interactionType\": 1, \"questionType\": 2, \"questionId\": \"1.2_YourTurnPredict\", \"learnToolsVersion\": \"0.3.5\", \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\"}}, \"*\")"},"metadata":{}},{"output_type":"display_data","data":{"text/plain":"Correct","text/markdown":"<span style=\"color:#33cc33\">Correct</span>"},"metadata":{}}],"execution_count":50},{"cell_type":"markdown","source":"This actually decreases accuracy.","metadata":{"execution":{"iopub.status.busy":"2025-09-10T15:01:37.377380Z","iopub.execute_input":"2025-09-10T15:01:37.377718Z","iopub.status.idle":"2025-09-10T15:01:37.383176Z","shell.execute_reply.started":"2025-09-10T15:01:37.377695Z","shell.execute_reply":"2025-09-10T15:01:37.382130Z"}}},{"cell_type":"code","source":"# Line below will give you a hint\n#step_1.b.hint()","metadata":{},"outputs":[],"execution_count":null},{"cell_type":"markdown","source":"# Step 2: Generate test predictions\n\nNow, you'll use your trained model to generate predictions with the test data.","metadata":{}},{"cell_type":"code","source":"# Preprocessing of test data, fit model\npreds_test = my_pipeline_num_extend.predict(X_test) # Your code here\n\n# Check your answer\nstep_2.check()","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T15:07:15.343158Z","iopub.execute_input":"2025-09-10T15:07:15.343472Z","iopub.status.idle":"2025-09-10T15:07:15.415436Z","shell.execute_reply.started":"2025-09-10T15:07:15.343449Z","shell.execute_reply":"2025-09-10T15:07:15.414820Z"}},"outputs":[{"output_type":"display_data","data":{"text/plain":"<IPython.core.display.Javascript object>","application/javascript":"parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"outcomeType\": 1, \"valueTowardsCompletion\": 1.0, \"interactionType\": 1, \"questionType\": 2, \"questionId\": \"2_TestPreds\", \"learnToolsVersion\": \"0.3.5\", \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\"}}, \"*\")"},"metadata":{}},{"output_type":"display_data","data":{"text/plain":"Correct","text/markdown":"<span style=\"color:#33cc33\">Correct</span>"},"metadata":{}}],"execution_count":53},{"cell_type":"code","source":"# Lines below will give you a hint or solution code\n#step_2.hint()\nstep_2.solution()","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T15:06:43.702039Z","iopub.execute_input":"2025-09-10T15:06:43.702357Z","iopub.status.idle":"2025-09-10T15:06:43.709044Z","shell.execute_reply.started":"2025-09-10T15:06:43.702308Z","shell.execute_reply":"2025-09-10T15:06:43.708278Z"}},"outputs":[{"output_type":"display_data","data":{"text/plain":"<IPython.core.display.Javascript object>","application/javascript":"parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"interactionType\": 3, \"questionType\": 2, \"questionId\": \"2_TestPreds\", \"learnToolsVersion\": \"0.3.5\", \"valueTowardsCompletion\": 0.0, \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\", \"outcomeType\": 4}}, \"*\")"},"metadata":{}},{"output_type":"display_data","data":{"text/plain":"Solution: \n```python\n# Preprocessing of test data, fit model\npreds_test = my_pipeline.predict(X_test)\n\n```","text/markdown":"<span style=\"color:#33cc99\">Solution:</span> \n```python\n# Preprocessing of test data, fit model\npreds_test = my_pipeline.predict(X_test)\n\n```"},"metadata":{}}],"execution_count":52},{"cell_type":"markdown","source":"Run the next code cell without changes to save your results to a CSV file that can be submitted directly to the competition.","metadata":{}},{"cell_type":"code","source":"# Save test predictions to file\noutput = pd.DataFrame({'Id': X_test.index,\n                       'SalePrice': preds_test})\noutput.to_csv('submission.csv', index=False)","metadata":{"trusted":true,"execution":{"iopub.status.busy":"2025-09-10T15:07:34.422439Z","iopub.execute_input":"2025-09-10T15:07:34.423197Z","iopub.status.idle":"2025-09-10T15:07:34.431425Z","shell.execute_reply.started":"2025-09-10T15:07:34.423172Z","shell.execute_reply":"2025-09-10T15:07:34.430597Z"}},"outputs":[],"execution_count":55},{"cell_type":"markdown","source":"# Submit your results\n\nOnce you have successfully completed Step 2, you're ready to submit your results to the leaderboard!  If you choose to do so, make sure that you have already joined the competition by clicking on the **Join Competition** button at [this link](https://www.kaggle.com/c/home-data-for-ml-course).  \n1. Begin by clicking on the **Save Version** button in the top right corner of the window.  This will generate a pop-up window.  \n2. Ensure that the **Save and Run All** option is selected, and then click on the **Save** button.\n3. This generates a window in the bottom left corner of the notebook.  After it has finished running, click on the number to the right of the **Save Version** button.  This pulls up a list of versions on the right of the screen.  Click on the ellipsis **(...)** to the right of the most recent version, and select **Open in Viewer**.  This brings you into view mode of the same page. You will need to scroll down to get back to these instructions.\n4. Click on the **Data** tab near the top of the screen.  Then, click on the file you would like to submit, and click on the **Submit** button to submit your results to the leaderboard.\n\nYou have now successfully submitted to the competition!\n\nIf you want to keep working to improve your performance, select the **Edit** button in the top right of the screen. Then you can change your code and repeat the process. There's a lot of room to improve, and you will climb up the leaderboard as you work.\n\n\n# Keep going\n\nMove on to learn about [**cross-validation**](https://www.kaggle.com/alexisbcook/cross-validation), a technique you can use to obtain more accurate estimates of model performance!","metadata":{}},{"cell_type":"markdown","source":"---\n\n\n\n\n*Have questions or comments? Visit the [course discussion forum](https://www.kaggle.com/learn/intermediate-machine-learning/discussion) to chat with other learners.*","metadata":{}}]}
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "1569b98c",
+   "metadata": {
+    "papermill": {
+     "duration": 0.004699,
+     "end_time": "2025-09-10T15:11:18.382170",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:18.377471",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "**This notebook is an exercise in the [Intermediate Machine Learning](https://www.kaggle.com/learn/intermediate-machine-learning) course.  You can reference the tutorial at [this link](https://www.kaggle.com/alexisbcook/pipelines).**\n",
+    "\n",
+    "---\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "0e7fc092",
+   "metadata": {
+    "papermill": {
+     "duration": 0.003357,
+     "end_time": "2025-09-10T15:11:18.389324",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:18.385967",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "In this exercise, you will use **pipelines** to improve the efficiency of your machine learning code.\n",
+    "\n",
+    "# Setup\n",
+    "\n",
+    "The questions below will give you feedback on your work. Run the following cell to set up the feedback system."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "4c719db8",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:18.397720Z",
+     "iopub.status.busy": "2025-09-10T15:11:18.397432Z",
+     "iopub.status.idle": "2025-09-10T15:11:21.928759Z",
+     "shell.execute_reply": "2025-09-10T15:11:21.927633Z"
+    },
+    "papermill": {
+     "duration": 3.537183,
+     "end_time": "2025-09-10T15:11:21.930053",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:18.392870",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Setup Complete\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Set up code checking\n",
+    "import os\n",
+    "if not os.path.exists(\"../input/train.csv\"):\n",
+    "    os.symlink(\"../input/home-data-for-ml-course/train.csv\", \"../input/train.csv\")  \n",
+    "    os.symlink(\"../input/home-data-for-ml-course/test.csv\", \"../input/test.csv\") \n",
+    "from learntools.core import binder\n",
+    "binder.bind(globals())\n",
+    "from learntools.ml_intermediate.ex4 import *\n",
+    "print(\"Setup Complete\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "d66867cb",
+   "metadata": {
+    "papermill": {
+     "duration": 0.003592,
+     "end_time": "2025-09-10T15:11:21.937646",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:21.934054",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "You will work with data from the [Housing Prices Competition for Kaggle Learn Users](https://www.kaggle.com/c/home-data-for-ml-course). \n",
+    "\n",
+    "![Ames Housing dataset image](https://storage.googleapis.com/kaggle-media/learn/images/lTJVG4e.png)\n",
+    "\n",
+    "Run the next code cell without changes to load the training and validation sets in `X_train`, `X_valid`, `y_train`, and `y_valid`.  The test set is loaded in `X_test`."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "id": "dab52ec0",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:21.945802Z",
+     "iopub.status.busy": "2025-09-10T15:11:21.945469Z",
+     "iopub.status.idle": "2025-09-10T15:11:22.162479Z",
+     "shell.execute_reply": "2025-09-10T15:11:22.161431Z"
+    },
+    "papermill": {
+     "duration": 0.223163,
+     "end_time": "2025-09-10T15:11:22.164303",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:21.941140",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "import pandas as pd\n",
+    "from sklearn.model_selection import train_test_split\n",
+    "\n",
+    "# Read the data\n",
+    "X_full = pd.read_csv('../input/train.csv', index_col='Id')\n",
+    "X_test_full = pd.read_csv('../input/test.csv', index_col='Id')\n",
+    "\n",
+    "# Remove rows with missing target, separate target from predictors\n",
+    "X_full.dropna(axis=0, subset=['SalePrice'], inplace=True)\n",
+    "y = X_full.SalePrice\n",
+    "X_full.drop(['SalePrice'], axis=1, inplace=True)\n",
+    "\n",
+    "# Break off validation set from training data\n",
+    "X_train_full, X_valid_full, y_train, y_valid = train_test_split(X_full, y, \n",
+    "                                                                train_size=0.8, test_size=0.2,\n",
+    "                                                                random_state=0)\n",
+    "\n",
+    "# \"Cardinality\" means the number of unique values in a column\n",
+    "# Select categorical columns with relatively low cardinality (convenient but arbitrary)\n",
+    "categorical_cols = [cname for cname in X_train_full.columns if\n",
+    "                    X_train_full[cname].nunique() < 10 and \n",
+    "                    X_train_full[cname].dtype == \"object\"]\n",
+    "\n",
+    "# Select numerical columns\n",
+    "numerical_cols = [cname for cname in X_train_full.columns if \n",
+    "                X_train_full[cname].dtype in ['int64', 'float64']]\n",
+    "\n",
+    "# Keep selected columns only\n",
+    "my_cols = categorical_cols + numerical_cols\n",
+    "X_train = X_train_full[my_cols].copy()\n",
+    "X_valid = X_valid_full[my_cols].copy()\n",
+    "X_test = X_test_full[my_cols].copy()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "id": "02a6cf6b",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:22.174213Z",
+     "iopub.status.busy": "2025-09-10T15:11:22.173771Z",
+     "iopub.status.idle": "2025-09-10T15:11:22.200139Z",
+     "shell.execute_reply": "2025-09-10T15:11:22.199307Z"
+    },
+    "papermill": {
+     "duration": 0.032858,
+     "end_time": "2025-09-10T15:11:22.201490",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:22.168632",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>MSZoning</th>\n",
+       "      <th>Street</th>\n",
+       "      <th>Alley</th>\n",
+       "      <th>LotShape</th>\n",
+       "      <th>LandContour</th>\n",
+       "      <th>Utilities</th>\n",
+       "      <th>LotConfig</th>\n",
+       "      <th>LandSlope</th>\n",
+       "      <th>Condition1</th>\n",
+       "      <th>Condition2</th>\n",
+       "      <th>...</th>\n",
+       "      <th>GarageArea</th>\n",
+       "      <th>WoodDeckSF</th>\n",
+       "      <th>OpenPorchSF</th>\n",
+       "      <th>EnclosedPorch</th>\n",
+       "      <th>3SsnPorch</th>\n",
+       "      <th>ScreenPorch</th>\n",
+       "      <th>PoolArea</th>\n",
+       "      <th>MiscVal</th>\n",
+       "      <th>MoSold</th>\n",
+       "      <th>YrSold</th>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>Id</th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "      <th></th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>619</th>\n",
+       "      <td>RL</td>\n",
+       "      <td>Pave</td>\n",
+       "      <td>NaN</td>\n",
+       "      <td>Reg</td>\n",
+       "      <td>Lvl</td>\n",
+       "      <td>AllPub</td>\n",
+       "      <td>Inside</td>\n",
+       "      <td>Gtl</td>\n",
+       "      <td>Norm</td>\n",
+       "      <td>Norm</td>\n",
+       "      <td>...</td>\n",
+       "      <td>774</td>\n",
+       "      <td>0</td>\n",
+       "      <td>108</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>260</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>7</td>\n",
+       "      <td>2007</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>871</th>\n",
+       "      <td>RL</td>\n",
+       "      <td>Pave</td>\n",
+       "      <td>NaN</td>\n",
+       "      <td>Reg</td>\n",
+       "      <td>Lvl</td>\n",
+       "      <td>AllPub</td>\n",
+       "      <td>Inside</td>\n",
+       "      <td>Gtl</td>\n",
+       "      <td>PosN</td>\n",
+       "      <td>Norm</td>\n",
+       "      <td>...</td>\n",
+       "      <td>308</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>8</td>\n",
+       "      <td>2009</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>93</th>\n",
+       "      <td>RL</td>\n",
+       "      <td>Pave</td>\n",
+       "      <td>Grvl</td>\n",
+       "      <td>IR1</td>\n",
+       "      <td>HLS</td>\n",
+       "      <td>AllPub</td>\n",
+       "      <td>Inside</td>\n",
+       "      <td>Gtl</td>\n",
+       "      <td>Norm</td>\n",
+       "      <td>Norm</td>\n",
+       "      <td>...</td>\n",
+       "      <td>432</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>44</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>8</td>\n",
+       "      <td>2009</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>818</th>\n",
+       "      <td>RL</td>\n",
+       "      <td>Pave</td>\n",
+       "      <td>NaN</td>\n",
+       "      <td>IR1</td>\n",
+       "      <td>Lvl</td>\n",
+       "      <td>AllPub</td>\n",
+       "      <td>CulDSac</td>\n",
+       "      <td>Gtl</td>\n",
+       "      <td>Norm</td>\n",
+       "      <td>Norm</td>\n",
+       "      <td>...</td>\n",
+       "      <td>857</td>\n",
+       "      <td>150</td>\n",
+       "      <td>59</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>7</td>\n",
+       "      <td>2008</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>303</th>\n",
+       "      <td>RL</td>\n",
+       "      <td>Pave</td>\n",
+       "      <td>NaN</td>\n",
+       "      <td>IR1</td>\n",
+       "      <td>Lvl</td>\n",
+       "      <td>AllPub</td>\n",
+       "      <td>Corner</td>\n",
+       "      <td>Gtl</td>\n",
+       "      <td>Norm</td>\n",
+       "      <td>Norm</td>\n",
+       "      <td>...</td>\n",
+       "      <td>843</td>\n",
+       "      <td>468</td>\n",
+       "      <td>81</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>2006</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "<p>5 rows × 76 columns</p>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "    MSZoning Street Alley LotShape LandContour Utilities LotConfig LandSlope  \\\n",
+       "Id                                                                             \n",
+       "619       RL   Pave   NaN      Reg         Lvl    AllPub    Inside       Gtl   \n",
+       "871       RL   Pave   NaN      Reg         Lvl    AllPub    Inside       Gtl   \n",
+       "93        RL   Pave  Grvl      IR1         HLS    AllPub    Inside       Gtl   \n",
+       "818       RL   Pave   NaN      IR1         Lvl    AllPub   CulDSac       Gtl   \n",
+       "303       RL   Pave   NaN      IR1         Lvl    AllPub    Corner       Gtl   \n",
+       "\n",
+       "    Condition1 Condition2  ... GarageArea WoodDeckSF OpenPorchSF  \\\n",
+       "Id                         ...                                     \n",
+       "619       Norm       Norm  ...        774          0         108   \n",
+       "871       PosN       Norm  ...        308          0           0   \n",
+       "93        Norm       Norm  ...        432          0           0   \n",
+       "818       Norm       Norm  ...        857        150          59   \n",
+       "303       Norm       Norm  ...        843        468          81   \n",
+       "\n",
+       "    EnclosedPorch 3SsnPorch ScreenPorch PoolArea MiscVal MoSold YrSold  \n",
+       "Id                                                                      \n",
+       "619             0         0         260        0       0      7   2007  \n",
+       "871             0         0           0        0       0      8   2009  \n",
+       "93             44         0           0        0       0      8   2009  \n",
+       "818             0         0           0        0       0      7   2008  \n",
+       "303             0         0           0        0       0      1   2006  \n",
+       "\n",
+       "[5 rows x 76 columns]"
+      ]
+     },
+     "execution_count": 3,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "X_train.head()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "ebd05ee3",
+   "metadata": {
+    "papermill": {
+     "duration": 0.005093,
+     "end_time": "2025-09-10T15:11:22.211455",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:22.206362",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "The next code cell uses code from the tutorial to preprocess the data and train a model.  Run this code without changes."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "id": "039f428f",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:22.221302Z",
+     "iopub.status.busy": "2025-09-10T15:11:22.220948Z",
+     "iopub.status.idle": "2025-09-10T15:11:24.395012Z",
+     "shell.execute_reply": "2025-09-10T15:11:24.393837Z"
+    },
+    "papermill": {
+     "duration": 2.181187,
+     "end_time": "2025-09-10T15:11:24.396794",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:22.215607",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "MAE: 17614.81993150685\n"
+     ]
+    }
+   ],
+   "source": [
+    "from sklearn.compose import ColumnTransformer\n",
+    "from sklearn.pipeline import Pipeline\n",
+    "from sklearn.impute import SimpleImputer\n",
+    "from sklearn.preprocessing import OneHotEncoder\n",
+    "from sklearn.ensemble import RandomForestRegressor\n",
+    "from sklearn.metrics import mean_absolute_error\n",
+    "\n",
+    "# Preprocessing for numerical data\n",
+    "numerical_transformer = SimpleImputer(strategy='constant')\n",
+    "\n",
+    "# Preprocessing for categorical data\n",
+    "categorical_transformer = Pipeline(steps=[\n",
+    "    ('imputer', SimpleImputer(strategy='most_frequent')),\n",
+    "    ('onehot', OneHotEncoder(handle_unknown='ignore'))\n",
+    "])\n",
+    "\n",
+    "# Bundle preprocessing for numerical and categorical data\n",
+    "preprocessor = ColumnTransformer(\n",
+    "    transformers=[\n",
+    "        ('num', numerical_transformer, numerical_cols),\n",
+    "        ('cat', categorical_transformer, categorical_cols)\n",
+    "    ])\n",
+    "\n",
+    "# Define model\n",
+    "model = RandomForestRegressor(n_estimators=100, random_state=0)\n",
+    "\n",
+    "# Bundle preprocessing and modeling code in a pipeline\n",
+    "clf = Pipeline(steps=[('preprocessor', preprocessor),\n",
+    "                      ('model', model)\n",
+    "                     ])\n",
+    "\n",
+    "# Preprocessing of training data, fit model \n",
+    "clf.fit(X_train, y_train)\n",
+    "\n",
+    "# Preprocessing of validation data, get predictions\n",
+    "preds = clf.predict(X_valid)\n",
+    "\n",
+    "print('MAE:', mean_absolute_error(y_valid, preds))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "5df9ff79",
+   "metadata": {
+    "papermill": {
+     "duration": 0.003646,
+     "end_time": "2025-09-10T15:11:24.404827",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:24.401181",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "The code yields a value around 17862 for the mean absolute error (MAE).  In the next step, you will amend the code to do better.\n",
+    "\n",
+    "# Step 1: Improve the performance\n",
+    "\n",
+    "### Part A\n",
+    "\n",
+    "Now, it's your turn!  In the code cell below, define your own preprocessing steps and random forest model.  Fill in values for the following variables:\n",
+    "- `numerical_transformer`\n",
+    "- `categorical_transformer`\n",
+    "- `model`\n",
+    "\n",
+    "To pass this part of the exercise, you need only define valid preprocessing steps and a random forest model."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "id": "475ec91b",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:24.413713Z",
+     "iopub.status.busy": "2025-09-10T15:11:24.413425Z",
+     "iopub.status.idle": "2025-09-10T15:11:24.421901Z",
+     "shell.execute_reply": "2025-09-10T15:11:24.421067Z"
+    },
+    "papermill": {
+     "duration": 0.014979,
+     "end_time": "2025-09-10T15:11:24.423572",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:24.408593",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "application/javascript": [
+       "parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"outcomeType\": 1, \"valueTowardsCompletion\": 1.0, \"interactionType\": 1, \"questionType\": 2, \"questionId\": \"1.1_YourTurnModel\", \"learnToolsVersion\": \"0.3.5\", \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\"}}, \"*\")"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Javascript object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/markdown": [
+       "<span style=\"color:#33cc33\">Correct</span>"
+      ],
+      "text/plain": [
+       "Correct"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "# Just repeated what was done above. Will adjust later on.\n",
+    "# Preprocessing for numerical data\n",
+    "numerical_transformer = SimpleImputer(strategy='constant') # Your code here\n",
+    "\n",
+    "# Preprocessing for categorical data\n",
+    "categorical_transformer = Pipeline(steps=[\n",
+    "    ('imputer', SimpleImputer(strategy='most_frequent')),\n",
+    "    ('onehot', OneHotEncoder(handle_unknown='ignore'))\n",
+    "])# Your code here\n",
+    "\n",
+    "# Bundle preprocessing for numerical and categorical data\n",
+    "preprocessor = ColumnTransformer(\n",
+    "    transformers=[\n",
+    "        ('num', numerical_transformer, numerical_cols),\n",
+    "        ('cat', categorical_transformer, categorical_cols)\n",
+    "    ])\n",
+    "\n",
+    "# Define model\n",
+    "model = RandomForestRegressor(n_estimators=100, random_state=0) # Your code here\n",
+    "\n",
+    "# Check your answer\n",
+    "step_1.a.check()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "id": "7b1908b9",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:24.434149Z",
+     "iopub.status.busy": "2025-09-10T15:11:24.433689Z",
+     "iopub.status.idle": "2025-09-10T15:11:24.438152Z",
+     "shell.execute_reply": "2025-09-10T15:11:24.436955Z"
+    },
+    "papermill": {
+     "duration": 0.011278,
+     "end_time": "2025-09-10T15:11:24.439486",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:24.428208",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "# Lines below will give you a hint or solution code\n",
+    "#step_1.a.hint()\n",
+    "#step_1.a.solution()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "7bced509",
+   "metadata": {
+    "papermill": {
+     "duration": 0.00376,
+     "end_time": "2025-09-10T15:11:24.447662",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:24.443902",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "Let us see which columns we are adjusting."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "id": "2cf052bd",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:24.457842Z",
+     "iopub.status.busy": "2025-09-10T15:11:24.457527Z",
+     "iopub.status.idle": "2025-09-10T15:11:24.461223Z",
+     "shell.execute_reply": "2025-09-10T15:11:24.460217Z"
+    },
+    "papermill": {
+     "duration": 0.011199,
+     "end_time": "2025-09-10T15:11:24.462794",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:24.451595",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "#my_cols\n",
+    "\n",
+    "#categorical_cols\n",
+    "\n",
+    "#numerical_cols"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "id": "682bcec1",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:24.474669Z",
+     "iopub.status.busy": "2025-09-10T15:11:24.474249Z",
+     "iopub.status.idle": "2025-09-10T15:11:24.484343Z",
+     "shell.execute_reply": "2025-09-10T15:11:24.483203Z"
+    },
+    "papermill": {
+     "duration": 0.01733,
+     "end_time": "2025-09-10T15:11:24.485595",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:24.468265",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "['LotFrontage', 'MasVnrArea', 'GarageYrBlt']"
+      ]
+     },
+     "execution_count": 8,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "cols_with_missing = [col for col in numerical_cols\n",
+    "                     if X_train[col].isnull().any()]\n",
+    "cols_with_missing"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "93790040",
+   "metadata": {
+    "papermill": {
+     "duration": 0.003957,
+     "end_time": "2025-09-10T15:11:24.494096",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:24.490139",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "There are so many coloumns we are adjusting. Our methods seem so broad."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "632c3a89",
+   "metadata": {
+    "papermill": {
+     "duration": 0.004236,
+     "end_time": "2025-09-10T15:11:24.503312",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:24.499076",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "First let's focus on the numerical imputation.\n",
+    "\n",
+    "What are we imputing with? A 'constant', what is this constant? The default constant is 0. This could be terrible for a date data type, which we know we have. Let us use another value to impute with.\n",
+    "\n",
+    "Could we extend the imputation by also stating in another column that the value wasn't originally there."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "847a9e5f",
+   "metadata": {
+    "papermill": {
+     "duration": 0.003819,
+     "end_time": "2025-09-10T15:11:24.511194",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:24.507375",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "Below we changed the preprocess step for the numerical columns. Changing the ```SimpleImputer(strategy='constant')``` to ```SimpleImputer(strategy='median')```."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "id": "bc6055ee",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:24.520355Z",
+     "iopub.status.busy": "2025-09-10T15:11:24.520099Z",
+     "iopub.status.idle": "2025-09-10T15:11:24.527610Z",
+     "shell.execute_reply": "2025-09-10T15:11:24.526828Z"
+    },
+    "papermill": {
+     "duration": 0.014256,
+     "end_time": "2025-09-10T15:11:24.529357",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:24.515101",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "application/javascript": [
+       "parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"outcomeType\": 1, \"valueTowardsCompletion\": 1.0, \"interactionType\": 1, \"questionType\": 2, \"questionId\": \"1.1_YourTurnModel\", \"learnToolsVersion\": \"0.3.5\", \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\"}}, \"*\")"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Javascript object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/markdown": [
+       "<span style=\"color:#33cc33\">Correct</span>"
+      ],
+      "text/plain": [
+       "Correct"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "# Preprocessing for numerical data\n",
+    "numerical_transformer_num_median = SimpleImputer(strategy='median')\n",
+    "\n",
+    "# Preprocessing for categorical data\n",
+    "categorical_transformer = Pipeline(steps=[\n",
+    "    ('imputer', SimpleImputer(strategy='most_frequent')),\n",
+    "    ('onehot', OneHotEncoder(handle_unknown='ignore'))\n",
+    "])\n",
+    "\n",
+    "# Bundle preprocessing for numerical and categorical data\n",
+    "preprocessor_num_median = ColumnTransformer(\n",
+    "    transformers=[\n",
+    "        ('num', numerical_transformer_num_median, numerical_cols),\n",
+    "        ('cat', categorical_transformer, categorical_cols)\n",
+    "    ])\n",
+    "\n",
+    "# Define model\n",
+    "model = RandomForestRegressor(n_estimators=100, random_state=0)\n",
+    "\n",
+    "# Check your answer\n",
+    "step_1.a.check()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "c90ab66b",
+   "metadata": {
+    "papermill": {
+     "duration": 0.003823,
+     "end_time": "2025-09-10T15:11:24.537799",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:24.533976",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "### Part B\n",
+    "\n",
+    "Run the code cell below without changes.\n",
+    "\n",
+    "To pass this step, you need to have defined a pipeline in **Part A** that achieves lower MAE than the code above.  You're encouraged to take your time here and try out many different approaches, to see how low you can get the MAE!  (_If your code does not pass, please amend the preprocessing steps and model in Part A._)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "id": "3dfa7bb5",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:24.547524Z",
+     "iopub.status.busy": "2025-09-10T15:11:24.547186Z",
+     "iopub.status.idle": "2025-09-10T15:11:26.421300Z",
+     "shell.execute_reply": "2025-09-10T15:11:26.420577Z"
+    },
+    "papermill": {
+     "duration": 1.880534,
+     "end_time": "2025-09-10T15:11:26.422424",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:24.541890",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "MAE: 17514.986232876712\n"
+     ]
+    },
+    {
+     "data": {
+      "application/javascript": [
+       "parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"outcomeType\": 1, \"valueTowardsCompletion\": 1.0, \"interactionType\": 1, \"questionType\": 2, \"questionId\": \"1.2_YourTurnPredict\", \"learnToolsVersion\": \"0.3.5\", \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\"}}, \"*\")"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Javascript object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/markdown": [
+       "<span style=\"color:#33cc33\">Correct</span>"
+      ],
+      "text/plain": [
+       "Correct"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "# Bundle preprocessing and modeling code in a pipeline\n",
+    "my_pipeline_num_median = Pipeline(steps=[('preprocessor', preprocessor_num_median),\n",
+    "                              ('model', model)\n",
+    "                             ])\n",
+    "\n",
+    "# Preprocessing of training data, fit model \n",
+    "my_pipeline_num_median.fit(X_train, y_train)\n",
+    "\n",
+    "# Preprocessing of validation data, get predictions\n",
+    "preds = my_pipeline_num_median.predict(X_valid)\n",
+    "\n",
+    "# Evaluate the model\n",
+    "score = mean_absolute_error(y_valid, preds)\n",
+    "print('MAE:', score)\n",
+    "\n",
+    "# Check your answer\n",
+    "step_1.b.check()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "21c086c8",
+   "metadata": {
+    "papermill": {
+     "duration": 0.004194,
+     "end_time": "2025-09-10T15:11:26.431431",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:26.427237",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "The MAE is less by around a 100 dollars it seems. Not very much but still.\n",
+    "\n",
+    "From messing around, it is interesting to see that the ```SimpleImputer(strategy='most_frequent')``` actually makes the MAE worse."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "edca7049",
+   "metadata": {
+    "papermill": {
+     "duration": 0.005121,
+     "end_time": "2025-09-10T15:11:26.440849",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:26.435728",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "Let us mess around with extending the Imputation for the numerical columns and categorical."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "id": "91d3d292",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:26.452595Z",
+     "iopub.status.busy": "2025-09-10T15:11:26.452306Z",
+     "iopub.status.idle": "2025-09-10T15:11:26.461661Z",
+     "shell.execute_reply": "2025-09-10T15:11:26.460745Z"
+    },
+    "papermill": {
+     "duration": 0.0165,
+     "end_time": "2025-09-10T15:11:26.463180",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:26.446680",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "application/javascript": [
+       "parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"outcomeType\": 1, \"valueTowardsCompletion\": 1.0, \"interactionType\": 1, \"questionType\": 2, \"questionId\": \"1.1_YourTurnModel\", \"learnToolsVersion\": \"0.3.5\", \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\"}}, \"*\")"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Javascript object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/markdown": [
+       "<span style=\"color:#33cc33\">Correct</span>"
+      ],
+      "text/plain": [
+       "Correct"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "# Preprocessing for numerical data\n",
+    "numerical_transformer_extend = SimpleImputer(strategy='median', add_indicator=True)\n",
+    "    \n",
+    "\n",
+    "# Preprocessing for categorical data\n",
+    "categorical_transformer_extend = Pipeline(steps=[\n",
+    "    ('imputer', SimpleImputer(strategy='most_frequent', add_indicator=True)),\n",
+    "    ('onehot', OneHotEncoder(handle_unknown='ignore'))\n",
+    "])\n",
+    "\n",
+    "# Bundle preprocessing for numerical and categorical data\n",
+    "preprocessor_num_extend = ColumnTransformer(\n",
+    "    transformers=[\n",
+    "        ('num', numerical_transformer_extend, numerical_cols),\n",
+    "        ('cat', categorical_transformer_extend, categorical_cols)\n",
+    "    ])\n",
+    "\n",
+    "# Define model\n",
+    "model = RandomForestRegressor(n_estimators=100, random_state=0)\n",
+    "\n",
+    "# Check your answer\n",
+    "step_1.a.check()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 12,
+   "id": "cdb3aa9c",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:26.474234Z",
+     "iopub.status.busy": "2025-09-10T15:11:26.473915Z",
+     "iopub.status.idle": "2025-09-10T15:11:28.547409Z",
+     "shell.execute_reply": "2025-09-10T15:11:28.546148Z"
+    },
+    "papermill": {
+     "duration": 2.080481,
+     "end_time": "2025-09-10T15:11:28.548842",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:26.468361",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "MAE: 17515.201232876712\n"
+     ]
+    },
+    {
+     "data": {
+      "application/javascript": [
+       "parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"outcomeType\": 1, \"valueTowardsCompletion\": 1.0, \"interactionType\": 1, \"questionType\": 2, \"questionId\": \"1.2_YourTurnPredict\", \"learnToolsVersion\": \"0.3.5\", \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\"}}, \"*\")"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Javascript object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/markdown": [
+       "<span style=\"color:#33cc33\">Correct</span>"
+      ],
+      "text/plain": [
+       "Correct"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "# Bundle preprocessing and modeling code in a pipeline\n",
+    "my_pipeline_num_extend = Pipeline(steps=[('preprocessor', preprocessor_num_extend),\n",
+    "                              ('model', model)\n",
+    "                             ])\n",
+    "\n",
+    "# Preprocessing of training data, fit model \n",
+    "my_pipeline_num_extend.fit(X_train, y_train)\n",
+    "\n",
+    "# Preprocessing of validation data, get predictions\n",
+    "preds = my_pipeline_num_extend.predict(X_valid)\n",
+    "\n",
+    "# Evaluate the model\n",
+    "score = mean_absolute_error(y_valid, preds)\n",
+    "print('MAE:', score)\n",
+    "\n",
+    "# Check your answer\n",
+    "step_1.b.check()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "ddea1a5d",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:01:37.377718Z",
+     "iopub.status.busy": "2025-09-10T15:01:37.377380Z",
+     "iopub.status.idle": "2025-09-10T15:01:37.383176Z",
+     "shell.execute_reply": "2025-09-10T15:01:37.382130Z",
+     "shell.execute_reply.started": "2025-09-10T15:01:37.377695Z"
+    },
+    "papermill": {
+     "duration": 0.005493,
+     "end_time": "2025-09-10T15:11:28.559545",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:28.554052",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "This actually decreases accuracy."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 13,
+   "id": "b06ccbbe",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:28.570323Z",
+     "iopub.status.busy": "2025-09-10T15:11:28.570015Z",
+     "iopub.status.idle": "2025-09-10T15:11:28.574255Z",
+     "shell.execute_reply": "2025-09-10T15:11:28.573054Z"
+    },
+    "papermill": {
+     "duration": 0.011234,
+     "end_time": "2025-09-10T15:11:28.575658",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:28.564424",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "# Line below will give you a hint\n",
+    "#step_1.b.hint()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "22bb2505",
+   "metadata": {
+    "papermill": {
+     "duration": 0.004478,
+     "end_time": "2025-09-10T15:11:28.585036",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:28.580558",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "# Step 2: Generate test predictions\n",
+    "\n",
+    "Now, you'll use your trained model to generate predictions with the test data."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 14,
+   "id": "b78f97b7",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:28.595581Z",
+     "iopub.status.busy": "2025-09-10T15:11:28.595297Z",
+     "iopub.status.idle": "2025-09-10T15:11:28.653083Z",
+     "shell.execute_reply": "2025-09-10T15:11:28.652043Z"
+    },
+    "papermill": {
+     "duration": 0.064825,
+     "end_time": "2025-09-10T15:11:28.654470",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:28.589645",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "application/javascript": [
+       "parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"outcomeType\": 1, \"valueTowardsCompletion\": 1.0, \"interactionType\": 1, \"questionType\": 2, \"questionId\": \"2_TestPreds\", \"learnToolsVersion\": \"0.3.5\", \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\"}}, \"*\")"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Javascript object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/markdown": [
+       "<span style=\"color:#33cc33\">Correct</span>"
+      ],
+      "text/plain": [
+       "Correct"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "# Preprocessing of test data, fit model\n",
+    "preds_test = my_pipeline_num_extend.predict(X_test) # Your code here\n",
+    "\n",
+    "# Check your answer\n",
+    "step_2.check()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "id": "21a3af2f",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:28.665773Z",
+     "iopub.status.busy": "2025-09-10T15:11:28.665511Z",
+     "iopub.status.idle": "2025-09-10T15:11:28.672746Z",
+     "shell.execute_reply": "2025-09-10T15:11:28.671861Z"
+    },
+    "papermill": {
+     "duration": 0.014811,
+     "end_time": "2025-09-10T15:11:28.674471",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:28.659660",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [
+    {
+     "data": {
+      "application/javascript": [
+       "parent.postMessage({\"jupyterEvent\": \"custom.exercise_interaction\", \"data\": {\"interactionType\": 3, \"questionType\": 2, \"questionId\": \"2_TestPreds\", \"learnToolsVersion\": \"0.3.5\", \"valueTowardsCompletion\": 0.0, \"failureMessage\": \"\", \"exceptionClass\": \"\", \"trace\": \"\", \"outcomeType\": 4}}, \"*\")"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Javascript object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/markdown": [
+       "<span style=\"color:#33cc99\">Solution:</span> \n",
+       "```python\n",
+       "# Preprocessing of test data, fit model\n",
+       "preds_test = my_pipeline.predict(X_test)\n",
+       "\n",
+       "```"
+      ],
+      "text/plain": [
+       "Solution: \n",
+       "```python\n",
+       "# Preprocessing of test data, fit model\n",
+       "preds_test = my_pipeline.predict(X_test)\n",
+       "\n",
+       "```"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "# Lines below will give you a hint or solution code\n",
+    "#step_2.hint()\n",
+    "step_2.solution()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "c1a34555",
+   "metadata": {
+    "papermill": {
+     "duration": 0.004774,
+     "end_time": "2025-09-10T15:11:28.684556",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:28.679782",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "Run the next code cell without changes to save your results to a CSV file that can be submitted directly to the competition."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 16,
+   "id": "b92b3c3f",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2025-09-10T15:11:28.697503Z",
+     "iopub.status.busy": "2025-09-10T15:11:28.697215Z",
+     "iopub.status.idle": "2025-09-10T15:11:28.708560Z",
+     "shell.execute_reply": "2025-09-10T15:11:28.707834Z"
+    },
+    "papermill": {
+     "duration": 0.019942,
+     "end_time": "2025-09-10T15:11:28.710127",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:28.690185",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "# Save test predictions to file\n",
+    "output = pd.DataFrame({'Id': X_test.index,\n",
+    "                       'SalePrice': preds_test})\n",
+    "output.to_csv('submission.csv', index=False)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "50cbd109",
+   "metadata": {
+    "papermill": {
+     "duration": 0.0047,
+     "end_time": "2025-09-10T15:11:28.720063",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:28.715363",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "# Submit your results\n",
+    "\n",
+    "Once you have successfully completed Step 2, you're ready to submit your results to the leaderboard!  If you choose to do so, make sure that you have already joined the competition by clicking on the **Join Competition** button at [this link](https://www.kaggle.com/c/home-data-for-ml-course).  \n",
+    "1. Begin by clicking on the **Save Version** button in the top right corner of the window.  This will generate a pop-up window.  \n",
+    "2. Ensure that the **Save and Run All** option is selected, and then click on the **Save** button.\n",
+    "3. This generates a window in the bottom left corner of the notebook.  After it has finished running, click on the number to the right of the **Save Version** button.  This pulls up a list of versions on the right of the screen.  Click on the ellipsis **(...)** to the right of the most recent version, and select **Open in Viewer**.  This brings you into view mode of the same page. You will need to scroll down to get back to these instructions.\n",
+    "4. Click on the **Data** tab near the top of the screen.  Then, click on the file you would like to submit, and click on the **Submit** button to submit your results to the leaderboard.\n",
+    "\n",
+    "You have now successfully submitted to the competition!\n",
+    "\n",
+    "If you want to keep working to improve your performance, select the **Edit** button in the top right of the screen. Then you can change your code and repeat the process. There's a lot of room to improve, and you will climb up the leaderboard as you work.\n",
+    "\n",
+    "\n",
+    "# Keep going\n",
+    "\n",
+    "Move on to learn about [**cross-validation**](https://www.kaggle.com/alexisbcook/cross-validation), a technique you can use to obtain more accurate estimates of model performance!"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "6ab59d9e",
+   "metadata": {
+    "papermill": {
+     "duration": 0.004792,
+     "end_time": "2025-09-10T15:11:28.729646",
+     "exception": false,
+     "start_time": "2025-09-10T15:11:28.724854",
+     "status": "completed"
+    },
+    "tags": []
+   },
+   "source": [
+    "---\n",
+    "\n",
+    "\n",
+    "\n",
+    "\n",
+    "*Have questions or comments? Visit the [course discussion forum](https://www.kaggle.com/learn/intermediate-machine-learning/discussion) to chat with other learners.*"
+   ]
+  }
+ ],
+ "metadata": {
+  "kaggle": {
+   "accelerator": "none",
+   "dataSources": [
+    {
+     "databundleVersionId": 111096,
+     "sourceId": 10211,
+     "sourceType": "competition"
+    }
+   ],
+   "isGpuEnabled": false,
+   "isInternetEnabled": false,
+   "language": "python",
+   "sourceType": "notebook"
+  },
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.13"
+  },
+  "papermill": {
+   "default_parameters": {},
+   "duration": 16.177694,
+   "end_time": "2025-09-10T15:11:29.462157",
+   "environment_variables": {},
+   "exception": null,
+   "input_path": "__notebook__.ipynb",
+   "output_path": "__notebook__.ipynb",
+   "parameters": {},
+   "start_time": "2025-09-10T15:11:13.284463",
+   "version": "2.6.0"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
